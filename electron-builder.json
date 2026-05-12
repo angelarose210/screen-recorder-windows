@@ -1,0 +1,26 @@
+{
+  "appId": "com.screenrecorder.app",
+  "productName": "Screen Recorder",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "native/build/Release/screen_recorder_native.node"
+  ],
+  "extraResources": [
+    {
+      "from": "resources/ffmpeg",
+      "to": "ffmpeg"
+    }
+  ],
+  "win": {
+    "target": ["nsis"],
+    "icon": "resources/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}
