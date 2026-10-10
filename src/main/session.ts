@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
+import { getVideosDir } from './config';
 
 const SESSIONS_DIR = path.join(
   process.env.LOCALAPPDATA || app.getPath('userData'),
@@ -32,9 +33,7 @@ export function createSession(sessionId: string): SessionPaths {
 }
 
 export function getOutputDir(): string {
-  const dir = path.join(app.getPath('videos'), 'ScreenRecorder');
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
+  return getVideosDir();
 }
 
 export function cleanupSession(sessionDir: string): void {

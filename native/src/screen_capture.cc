@@ -1,6 +1,10 @@
 #include "screen_capture.h"
 #include "util.h"
 
+#include <algorithm>
+#include <vector>
+#include <cstring>
+
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Graphics.Capture.h>
 #include <winrt/Windows.Graphics.DirectX.h>
@@ -67,6 +71,20 @@ static IDirect3DDevice getWinRTDevice(ID3D11Device* d3dDevice) {
 
 ScreenCapture::ScreenCapture() {}
 
+// Writes one whole frame to the pipe, looping over partial writes
+static bool writeFrame(HANDLE hPipe, const std::vector<BYTE>& buf) {
+    const BYTE* p = buf.data();
+    size_t left = buf.size();
+    while (left > 0) {
+        DWORD chunk = (DWORD)(std::min)(left, (size_t)(1 << 24));
+        DWORD written = 0;
+        if (!WriteFile(hPipe, p, chunk, &written, nullptr) || written == 0) return false;
+        p += written;
+        left -= written;
+    }
+    return true;
+}
+
 ScreenCapture::~ScreenCapture() {
     stopCapture();
 }
@@ -85,6 +103,8 @@ BOOL CALLBACK ScreenCapture::enumMonitorProc(HMONITOR hMonitor, HDC, LPRECT rect
         src.title += " (Primary)";
     }
     src.type = "monitor";
+    src.x = rect->left;
+    src.y = rect->top;
     src.width = rect->right - rect->left;
     src.height = rect->bottom - rect->top;
     sources->push_back(src);
@@ -127,11 +147,19 @@ std::vector<CaptureSource> ScreenCapture::enumerateSources() {
     return sources;
 }
 
-bool ScreenCapture::startCapture(const std::string& sourceId, int fps, const std::string& pipeName) {
+bool ScreenCapture::startCapture(const std::string& sourceId, int fps, const std::string& pipeName,
+                                 int cropX, int cropY, int cropW, int cropH) {
     if (m_capturing.load()) return false;
+
+    m_cropX = cropX;
+    m_cropY = cropY;
+    m_cropW = cropW;
+    m_cropH = cropH;
 
     m_fps = fps;
     m_pipeName = pipeName;
+    m_outW = 0;
+    m_outH = 0;
     m_capturing = true;
 
     m_captureThread = std::thread(&ScreenCapture::captureLoop, this, sourceId);
@@ -195,9 +223,23 @@ void ScreenCapture::captureLoop(const std::string& sourceId) {
         return;
     }
 
+    // The encoder needs one fixed frame size for the whole recording. Lock it to the
+    // item's size at start (even dims for yuv420p); later frames are cropped/padded to it.
     auto size = captureItem.Size();
-    m_width = size.Width;
-    m_height = size.Height;
+    int originX = 0, originY = 0;
+    if (m_cropW > 0 && m_cropH > 0) {
+        // Region recording: clamp the rect to the source, output only that area
+        originX = (std::max)(0, (std::min)(m_cropX, size.Width - 2));
+        originY = (std::max)(0, (std::min)(m_cropY, size.Height - 2));
+        m_width = (std::min)(m_cropW, size.Width - originX) & ~1;
+        m_height = (std::min)(m_cropH, size.Height - originY) & ~1;
+    } else {
+        m_width = size.Width & ~1;
+        m_height = size.Height & ~1;
+    }
+    m_outW = m_width;
+    m_outH = m_height;
+    auto poolSize = size;
 
     // Create frame pool
     auto framePool = Direct3D11CaptureFramePool::CreateFreeThreaded(
@@ -260,6 +302,11 @@ void ScreenCapture::captureLoop(const std::string& sourceId) {
     ID3D11Texture2D* stagingTexture = nullptr;
     d3dDevice->CreateTexture2D(&stagingDesc, nullptr, &stagingTexture);
 
+    // Last full frame (starts black). Windows only delivers frames when content changes,
+    // so it is re-sent on idle ticks to keep a constant frame rate in sync with audio.
+    const size_t outRowBytes = (size_t)m_width * 4;
+    std::vector<BYTE> frameBuf(outRowBytes * m_height, 0);
+
     session.StartCapture();
 
     auto frameInterval = std::chrono::microseconds(1000000 / m_fps);
@@ -273,7 +320,17 @@ void ScreenCapture::captureLoop(const std::string& sourceId) {
         nextFrameTime += frameInterval;
 
         auto frame = framePool.TryGetNextFrame();
-        if (!frame) continue;
+        if (!frame) {
+            if (!writeFrame(hPipe, frameBuf)) m_capturing = false;
+            continue;
+        }
+
+        // Window was resized: grow/shrink the pool so the next frames match the content
+        auto contentSize = frame.ContentSize();
+        if (contentSize.Width != poolSize.Width || contentSize.Height != poolSize.Height) {
+            poolSize = contentSize;
+            framePool.Recreate(winrtDevice, DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, poolSize);
+        }
 
         auto surface = frame.Surface();
 
@@ -289,19 +346,31 @@ void ScreenCapture::captureLoop(const std::string& sourceId) {
             }
         }
         if (SUCCEEDED(hr) && frameTexture) {
-            d3dContext->CopyResource(stagingTexture, frameTexture);
+            // Frame textures can differ from the output size (window resize, DWM borders).
+            // Copy the overlapping region and pad the rest with black so every frame
+            // written to the pipe is exactly m_width x m_height.
+            D3D11_TEXTURE2D_DESC srcDesc{};
+            frameTexture->GetDesc(&srcDesc);
+            int availW = (std::min)((int)srcDesc.Width, (int)contentSize.Width) - originX;
+            int availH = (std::min)((int)srcDesc.Height, (int)contentSize.Height) - originY;
+            int copyW = (std::max)(0, (std::min)(availW, m_width));
+            int copyH = (std::max)(0, (std::min)(availH, m_height));
+
+            D3D11_BOX box{ (UINT)originX, (UINT)originY, 0, (UINT)(originX + copyW), (UINT)(originY + copyH), 1 };
+            if (copyW > 0 && copyH > 0)
+                d3dContext->CopySubresourceRegion(stagingTexture, 0, 0, 0, 0, frameTexture, 0, &box);
 
             D3D11_MAPPED_SUBRESOURCE mapped{};
             hr = d3dContext->Map(stagingTexture, 0, D3D11_MAP_READ, 0, &mapped);
             if (SUCCEEDED(hr)) {
-                // Write BGRA pixels row by row (handle pitch != width*4)
-                DWORD bytesPerRow = m_width * 4;
+                BYTE* src = (BYTE*)mapped.pData;
                 for (int row = 0; row < m_height; row++) {
-                    BYTE* rowPtr = (BYTE*)mapped.pData + row * mapped.RowPitch;
-                    DWORD written;
-                    if (!WriteFile(hPipe, rowPtr, bytesPerRow, &written, nullptr)) {
-                        m_capturing = false;
-                        break;
+                    BYTE* out = frameBuf.data() + row * outRowBytes;
+                    if (row < copyH) {
+                        memcpy(out, src + row * mapped.RowPitch, copyW * 4);
+                        if (copyW < m_width) memset(out + copyW * 4, 0, (m_width - copyW) * 4);
+                    } else {
+                        memset(out, 0, outRowBytes);
                     }
                 }
                 d3dContext->Unmap(stagingTexture, 0);
@@ -309,6 +378,7 @@ void ScreenCapture::captureLoop(const std::string& sourceId) {
             frameTexture->Release();
         }
         frame.Close();
+        if (!writeFrame(hPipe, frameBuf)) m_capturing = false;
     }
 
     session.Close();
@@ -343,6 +413,12 @@ napi_value EnumerateSources(napi_env env, napi_callback_info) {
         napi_create_string_utf8(env, sources[i].type.c_str(), NAPI_AUTO_LENGTH, &val);
         napi_set_named_property(env, obj, "type", val);
 
+        napi_create_int32(env, sources[i].x, &val);
+        napi_set_named_property(env, obj, "x", val);
+
+        napi_create_int32(env, sources[i].y, &val);
+        napi_set_named_property(env, obj, "y", val);
+
         napi_create_int32(env, sources[i].width, &val);
         napi_set_named_property(env, obj, "width", val);
 
@@ -356,8 +432,8 @@ napi_value EnumerateSources(napi_env env, napi_callback_info) {
 }
 
 napi_value StartCapture(napi_env env, napi_callback_info info) {
-    size_t argc = 3;
-    napi_value args[3];
+    size_t argc = 4;
+    napi_value args[4];
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
 
     // arg0: sourceId (string)
@@ -373,7 +449,21 @@ napi_value StartCapture(napi_env env, napi_callback_info info) {
     char pipeName[512];
     napi_get_value_string_utf8(env, args[2], pipeName, sizeof(pipeName), &len);
 
-    bool ok = g_screenCapture.startCapture(std::string(sourceId), fps, std::string(pipeName));
+    // arg3 (optional): crop rect { x, y, width, height } in source pixels
+    int32_t crop[4] = { 0, 0, 0, 0 };
+    napi_valuetype t = napi_undefined;
+    if (argc >= 4) napi_typeof(env, args[3], &t);
+    if (t == napi_object) {
+        const char* keys[4] = { "x", "y", "width", "height" };
+        for (int i = 0; i < 4; i++) {
+            napi_value v;
+            if (napi_get_named_property(env, args[3], keys[i], &v) == napi_ok)
+                napi_get_value_int32(env, v, &crop[i]);
+        }
+    }
+
+    bool ok = g_screenCapture.startCapture(std::string(sourceId), fps, std::string(pipeName),
+                                           crop[0], crop[1], crop[2], crop[3]);
 
     napi_value result;
     napi_get_boolean(env, ok, &result);
@@ -385,6 +475,16 @@ napi_value StopCapture(napi_env env, napi_callback_info) {
     napi_value undefined;
     napi_get_undefined(env, &undefined);
     return undefined;
+}
+
+napi_value GetCaptureSize(napi_env env, napi_callback_info) {
+    napi_value obj, w, h;
+    napi_create_object(env, &obj);
+    napi_create_int32(env, g_screenCapture.outWidth(), &w);
+    napi_create_int32(env, g_screenCapture.outHeight(), &h);
+    napi_set_named_property(env, obj, "width", w);
+    napi_set_named_property(env, obj, "height", h);
+    return obj;
 }
 
 napi_value GetCaptureState(napi_env env, napi_callback_info) {

@@ -7,6 +7,12 @@ export interface RecordingConfig {
     audioMic: boolean;
     audioSystem: boolean;
     outputDir?: string;
+    region?: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
 }
 export declare class Recorder extends EventEmitter {
     private state;
@@ -19,6 +25,8 @@ export declare class Recorder extends EventEmitter {
     private sourceWidth;
     private sourceHeight;
     private effectsConfig;
+    private audioOffsetSec;
+    private captureOrigin;
     constructor();
     getState(): RecorderState;
     getElapsedSeconds(): number;
@@ -26,6 +34,8 @@ export declare class Recorder extends EventEmitter {
         id: string;
         title: string;
         type: string;
+        x: number;
+        y: number;
         width: number;
         height: number;
     }[];

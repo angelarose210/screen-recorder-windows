@@ -16,5 +16,6 @@ export declare class FFmpegEncoder {
         systemAudioPath: string | null;
         micAudioPath: string | null;
         outputPath: string;
+        audioOffsetSec: number;
     }): Promise<void>;
 }

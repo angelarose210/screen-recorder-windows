@@ -14,13 +14,16 @@ export interface RecordingConfig {
   audioMic: boolean;
   audioSystem: boolean;
   outputDir?: string;
+  // Record only this rect of a monitor source (physical pixels, relative to the monitor)
+  region?: { x: number; y: number; width: number; height: number };
 }
 
 interface NativeAddon {
-  enumerateSources(): Array<{ id: string; title: string; type: string; width: number; height: number }>;
-  startCapture(sourceId: string, fps: number, pipeName: string): boolean;
+  enumerateSources(): Array<{ id: string; title: string; type: string; x: number; y: number; width: number; height: number }>;
+  startCapture(sourceId: string, fps: number, pipeName: string, crop?: { x: number; y: number; width: number; height: number }): boolean;
   stopCapture(): void;
   getCaptureState(): string;
+  getCaptureSize(): { width: number; height: number };
   startAudioCapture(outputPath: string, type: string): boolean;
   stopAudioCapture(type: string): void;
   startCursorTracking(fps: number): void;
@@ -52,6 +55,8 @@ export class Recorder extends EventEmitter {
   private sourceWidth: number = 0;
   private sourceHeight: number = 0;
   private effectsConfig: PostProcessConfig = {};
+  private audioOffsetSec = 0;
+  private captureOrigin = { x: 0, y: 0 };
 
   constructor() {
     super();
@@ -90,23 +95,41 @@ export class Recorder extends EventEmitter {
     const source = sources.find(s => s.id === config.sourceId);
     if (!source) throw new Error('Source not found');
 
-    this.sourceWidth = source.width;
-    this.sourceHeight = source.height;
-
     // Start screen capture (creates named pipe server)
-    const captureOk = n.startCapture(config.sourceId, config.fps, pipeName);
+    if (config.region && source.type !== 'monitor') throw new Error('Area recording needs a monitor source');
+    this.captureOrigin = config.region
+      ? { x: source.x + config.region.x, y: source.y + config.region.y }
+      : { x: source.type === 'monitor' ? source.x : 0, y: source.type === 'monitor' ? source.y : 0 };
+
+    const captureOk = n.startCapture(config.sourceId, config.fps, pipeName, config.region);
     if (!captureOk) {
       throw new Error('Failed to start screen capture');
     }
 
-    // Give capture thread time to create the pipe
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // The real frame size comes from Windows Graphics Capture, not the enumerated
+    // window rect (which includes invisible borders). FFmpeg must be told the exact size.
+    let size = { width: 0, height: 0 };
+    for (let i = 0; i < 60 && size.width === 0; i++) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      size = n.getCaptureSize();
+    }
+    if (size.width === 0) {
+      n.stopCapture();
+      this.setState('idle');
+      throw new Error('Screen capture did not start');
+    }
+    this.sourceWidth = size.width;
+    this.sourceHeight = size.height;
 
-    // Start FFmpeg (connects to pipe as client)
+    // Give capture thread time to create the pipe
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    // Start FFmpeg (connects to pipe as client); video t=0 is roughly when it connects
+    const videoStart = Date.now();
     await this.ffmpeg.startEncoding({
       pipeName,
-      width: source.width,
-      height: source.height,
+      width: size.width,
+      height: size.height,
       fps: config.fps,
       outputPath: this.session.screenRaw,
     });
@@ -118,6 +141,8 @@ export class Recorder extends EventEmitter {
     if (config.audioMic) {
       n.startAudioCapture(this.session.micRaw, 'mic');
     }
+
+    this.audioOffsetSec = (Date.now() - videoStart) / 1000;
 
     // Start cursor tracking
     n.startCursorTracking(60);
@@ -140,7 +165,7 @@ export class Recorder extends EventEmitter {
     const n = loadNative();
     if (!n || !this.session || !this.config) throw new Error('Invalid state');
 
-    const recordingDuration = (Date.now() - this.startTime) / 1000;
+    const recordingDuration = (Date.now() - this.startTime) / 1000 + this.audioOffsetSec;
 
     this.setState('stopping');
 
@@ -159,7 +184,15 @@ export class Recorder extends EventEmitter {
       n.stopAudioCapture('mic');
     }
 
-    const cursorEvents = n.stopCursorTracking();
+    // Cursor timestamps start when tracking starts; shift them onto the video's clock
+    // and, for monitor/area recordings, onto the video's pixel space (effects assume x/y in 0..screen_w)
+    const origin = this.captureOrigin;
+    const remap = !!this.config.region || origin.x !== 0 || origin.y !== 0;
+    const cursorEvents = n.stopCursorTracking().map(e => ({
+      ...e,
+      t: e.t + this.audioOffsetSec,
+      ...(remap ? { x: e.x - origin.x, y: e.y - origin.y, screen_w: this.sourceWidth, screen_h: this.sourceHeight } : {}),
+    }));
 
     // Write cursor log
     fs.writeFileSync(this.session.cursorLog, JSON.stringify(cursorEvents, null, 2));
@@ -186,6 +219,7 @@ export class Recorder extends EventEmitter {
         systemAudioPath: hasSystem ? this.session.systemRaw : null,
         micAudioPath: hasMic ? this.session.micRaw : null,
         outputPath: muxedPath,
+        audioOffsetSec: this.audioOffsetSec,
       });
     }
 

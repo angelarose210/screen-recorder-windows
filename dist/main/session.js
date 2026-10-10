@@ -39,6 +39,7 @@ exports.cleanupSession = cleanupSession;
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
 const electron_1 = require("electron");
+const config_1 = require("./config");
 const SESSIONS_DIR = path.join(process.env.LOCALAPPDATA || electron_1.app.getPath('userData'), 'ScreenRecorder', 'sessions');
 function createSession(sessionId) {
     const sessionDir = path.join(SESSIONS_DIR, sessionId);
@@ -53,9 +54,7 @@ function createSession(sessionId) {
     };
 }
 function getOutputDir() {
-    const dir = path.join(electron_1.app.getPath('videos'), 'ScreenRecorder');
-    fs.mkdirSync(dir, { recursive: true });
-    return dir;
+    return (0, config_1.getVideosDir)();
 }
 function cleanupSession(sessionDir) {
     try {

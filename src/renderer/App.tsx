@@ -1,25 +1,30 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import RecordButton from './components/RecordButton';
 import AreaSelector from './components/AreaSelector';
 import AudioToggles from './components/AudioToggles';
 import EffectsToggle, { EffectsConfig } from './components/EffectsToggle';
 import StatusBar from './components/StatusBar';
+import SaveFolders from './components/SaveFolders';
 
 declare global {
   interface Window {
     recorder: {
       getSources: () => Promise<any[]>;
       start: (config: any) => Promise<void>;
+      startArea: (config: any) => Promise<boolean>;
       stop: () => Promise<{ outputPath: string; cursorLogPath: string; effectsApplied: boolean }>;
       getState: () => Promise<string>;
       setEffects: (config: any) => Promise<void>;
       onStateChange: (cb: (state: string) => void) => void;
       onTimer: (cb: (seconds: number) => void) => void;
       onGlobalShortcut: (cb: (action: string) => void) => void;
+      onFinished: (cb: (result: { outputPath: string; cursorLogPath: string; effectsApplied: boolean }) => void) => void;
       openOutputFolder: () => Promise<void>;
       getSettings: () => Promise<any>;
       setSettings: (settings: any) => Promise<void>;
-      selectOutputFolder: () => Promise<string | null>;
+      selectOutputFolder: (kind?: 'videos' | 'screenshots') => Promise<string | null>;
+      getFolders: () => Promise<{ videos: string; screenshots: string }>;
+      openFolder: (kind: 'videos' | 'screenshots') => Promise<void>;
     };
   }
 }
@@ -42,8 +47,14 @@ export default function App() {
 
     window.recorder.onStateChange((newState) => setState(newState));
     window.recorder.onTimer((seconds) => setElapsed(seconds));
+    window.recorder.onFinished((result) => {
+      setLastOutput(result.outputPath);
+      setEffectsApplied(result.effectsApplied);
+    });
+    // Ref so the hotkey always uses the current source/audio picks, not the first render's
     window.recorder.onGlobalShortcut((action) => {
-      if (action === 'toggle-recording') handleToggleRecording();
+      if (action === 'toggle-recording') toggleRef.current();
+      if (action === 'record-area') areaRef.current();
     });
   }, []);
 
@@ -58,11 +69,24 @@ export default function App() {
         audioSystem,
       });
     } else if (currentState === 'recording') {
-      const result = await window.recorder.stop();
-      setLastOutput(result.outputPath);
-      setEffectsApplied(result.effectsApplied);
+      await window.recorder.stop(); // result arrives via onFinished
     }
   }, [selectedSource, audioMic, audioSystem]);
+
+  const toggleRef = useRef(handleToggleRecording);
+  toggleRef.current = handleToggleRecording;
+
+  const handleRecordArea = useCallback(async () => {
+    const currentState = await window.recorder.getState();
+    if (currentState === 'idle') {
+      await window.recorder.startArea({ fps: 30, audioMic, audioSystem });
+    } else if (currentState === 'recording') {
+      await window.recorder.stop();
+    }
+  }, [audioMic, audioSystem]);
+
+  const areaRef = useRef(handleRecordArea);
+  areaRef.current = handleRecordArea;
 
   const handleEffectsChange = useCallback((config: EffectsConfig) => {
     window.recorder.setEffects(config);
@@ -95,11 +119,19 @@ export default function App() {
           onChange={handleEffectsChange}
         />
 
+        <SaveFolders disabled={state !== 'idle'} />
+
         <RecordButton
           state={state}
           elapsed={elapsed}
           onToggle={handleToggleRecording}
         />
+
+        {state === 'idle' && (
+          <button className="area-btn" onClick={handleRecordArea} title="Drag a box, then record only that area (Ctrl+Shift+A)">
+            Record an area instead
+          </button>
+        )}
 
         {lastOutput && state === 'idle' && (
           <div className="last-output">

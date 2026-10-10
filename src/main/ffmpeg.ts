@@ -94,16 +94,18 @@ export class FFmpegEncoder {
     systemAudioPath: string | null;
     micAudioPath: string | null;
     outputPath: string;
+    audioOffsetSec: number;
   }): Promise<void> {
     const args: string[] = ['-y', '-i', options.videoPath];
 
     const hasSystem = options.systemAudioPath !== null;
     const hasMic = options.micAudioPath !== null;
 
-    // Delay audio by 1s to compensate for video pipeline latency
-    // (pipe connection + frame pool + encoding buffer)
-    if (hasSystem) args.push('-itsoffset', '1.0', '-i', options.systemAudioPath!);
-    if (hasMic) args.push('-itsoffset', '1.0', '-i', options.micAudioPath!);
+    // Video frames flow at a constant rate from the moment FFmpeg connects; audio starts
+    // a little later. Shift audio by that measured gap so both share the same t=0.
+    const offset = options.audioOffsetSec.toFixed(3);
+    if (hasSystem) args.push('-itsoffset', offset, '-i', options.systemAudioPath!);
+    if (hasMic) args.push('-itsoffset', offset, '-i', options.micAudioPath!);
 
     if (hasSystem && hasMic) {
       args.push(

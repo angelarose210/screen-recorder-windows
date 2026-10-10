@@ -114,12 +114,13 @@ class FFmpegEncoder {
         const args = ['-y', '-i', options.videoPath];
         const hasSystem = options.systemAudioPath !== null;
         const hasMic = options.micAudioPath !== null;
-        // Delay audio by 1s to compensate for video pipeline latency
-        // (pipe connection + frame pool + encoding buffer)
+        // Video frames flow at a constant rate from the moment FFmpeg connects; audio starts
+        // a little later. Shift audio by that measured gap so both share the same t=0.
+        const offset = options.audioOffsetSec.toFixed(3);
         if (hasSystem)
-            args.push('-itsoffset', '1.0', '-i', options.systemAudioPath);
+            args.push('-itsoffset', offset, '-i', options.systemAudioPath);
         if (hasMic)
-            args.push('-itsoffset', '1.0', '-i', options.micAudioPath);
+            args.push('-itsoffset', offset, '-i', options.micAudioPath);
         if (hasSystem && hasMic) {
             args.push('-filter_complex', '[1:a][2:a]amix=inputs=2:duration=longest[aout]', '-map', '0:v', '-map', '[aout]');
         }

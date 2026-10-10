@@ -12,6 +12,7 @@ napi_value Init(napi_env env, napi_value exports) {
         DECLARE_NAPI_METHOD("startCapture", StartCapture),
         DECLARE_NAPI_METHOD("stopCapture", StopCapture),
         DECLARE_NAPI_METHOD("getCaptureState", GetCaptureState),
+        DECLARE_NAPI_METHOD("getCaptureSize", GetCaptureSize),
         DECLARE_NAPI_METHOD("startAudioCapture", StartAudioCapture),
         DECLARE_NAPI_METHOD("stopAudioCapture", StopAudioCapture),
         DECLARE_NAPI_METHOD("startCursorTracking", StartCursorTracking),

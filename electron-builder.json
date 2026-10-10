@@ -6,21 +6,17 @@
   },
   "files": [
     "dist/**/*",
-    "native/build/Release/screen_recorder_native.node"
+    "native/build/screen_recorder_native.node",
+    "resources/icon.ico",
+    "resources/icon.png"
   ],
-  "extraResources": [
-    {
-      "from": "resources/ffmpeg",
-      "to": "ffmpeg"
-    }
+  "asarUnpack": [
+    "native/build/*.node",
+    "resources/icon.ico"
   ],
+  "npmRebuild": false,
   "win": {
-    "target": ["nsis"],
+    "target": ["dir"],
     "icon": "resources/icon.ico"
-  },
-  "nsis": {
-    "oneClick": false,
-    "perMachine": false,
-    "allowToChangeInstallationDirectory": true
   }
 }

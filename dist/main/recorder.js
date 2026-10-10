@@ -67,6 +67,8 @@ class Recorder extends events_1.EventEmitter {
     sourceWidth = 0;
     sourceHeight = 0;
     effectsConfig = {};
+    audioOffsetSec = 0;
+    captureOrigin = { x: 0, y: 0 };
     constructor() {
         super();
         this.ffmpeg = new ffmpeg_1.FFmpegEncoder();
@@ -101,20 +103,38 @@ class Recorder extends events_1.EventEmitter {
         const source = sources.find(s => s.id === config.sourceId);
         if (!source)
             throw new Error('Source not found');
-        this.sourceWidth = source.width;
-        this.sourceHeight = source.height;
         // Start screen capture (creates named pipe server)
-        const captureOk = n.startCapture(config.sourceId, config.fps, pipeName);
+        if (config.region && source.type !== 'monitor')
+            throw new Error('Area recording needs a monitor source');
+        this.captureOrigin = config.region
+            ? { x: source.x + config.region.x, y: source.y + config.region.y }
+            : { x: source.type === 'monitor' ? source.x : 0, y: source.type === 'monitor' ? source.y : 0 };
+        const captureOk = n.startCapture(config.sourceId, config.fps, pipeName, config.region);
         if (!captureOk) {
             throw new Error('Failed to start screen capture');
         }
+        // The real frame size comes from Windows Graphics Capture, not the enumerated
+        // window rect (which includes invisible borders). FFmpeg must be told the exact size.
+        let size = { width: 0, height: 0 };
+        for (let i = 0; i < 60 && size.width === 0; i++) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+            size = n.getCaptureSize();
+        }
+        if (size.width === 0) {
+            n.stopCapture();
+            this.setState('idle');
+            throw new Error('Screen capture did not start');
+        }
+        this.sourceWidth = size.width;
+        this.sourceHeight = size.height;
         // Give capture thread time to create the pipe
-        await new Promise(resolve => setTimeout(resolve, 500));
-        // Start FFmpeg (connects to pipe as client)
+        await new Promise(resolve => setTimeout(resolve, 200));
+        // Start FFmpeg (connects to pipe as client); video t=0 is roughly when it connects
+        const videoStart = Date.now();
         await this.ffmpeg.startEncoding({
             pipeName,
-            width: source.width,
-            height: source.height,
+            width: size.width,
+            height: size.height,
             fps: config.fps,
             outputPath: this.session.screenRaw,
         });
@@ -125,6 +145,7 @@ class Recorder extends events_1.EventEmitter {
         if (config.audioMic) {
             n.startAudioCapture(this.session.micRaw, 'mic');
         }
+        this.audioOffsetSec = (Date.now() - videoStart) / 1000;
         // Start cursor tracking
         n.startCursorTracking(60);
         this.startTime = Date.now();
@@ -143,7 +164,7 @@ class Recorder extends events_1.EventEmitter {
         const n = loadNative();
         if (!n || !this.session || !this.config)
             throw new Error('Invalid state');
-        const recordingDuration = (Date.now() - this.startTime) / 1000;
+        const recordingDuration = (Date.now() - this.startTime) / 1000 + this.audioOffsetSec;
         this.setState('stopping');
         if (this.timerInterval) {
             clearInterval(this.timerInterval);
@@ -157,7 +178,15 @@ class Recorder extends events_1.EventEmitter {
         if (this.config.audioMic) {
             n.stopAudioCapture('mic');
         }
-        const cursorEvents = n.stopCursorTracking();
+        // Cursor timestamps start when tracking starts; shift them onto the video's clock
+        // and, for monitor/area recordings, onto the video's pixel space (effects assume x/y in 0..screen_w)
+        const origin = this.captureOrigin;
+        const remap = !!this.config.region || origin.x !== 0 || origin.y !== 0;
+        const cursorEvents = n.stopCursorTracking().map(e => ({
+            ...e,
+            t: e.t + this.audioOffsetSec,
+            ...(remap ? { x: e.x - origin.x, y: e.y - origin.y, screen_w: this.sourceWidth, screen_h: this.sourceHeight } : {}),
+        }));
         // Write cursor log
         fs.writeFileSync(this.session.cursorLog, JSON.stringify(cursorEvents, null, 2));
         this.setState('saving');
@@ -177,6 +206,7 @@ class Recorder extends events_1.EventEmitter {
                 systemAudioPath: hasSystem ? this.session.systemRaw : null,
                 micAudioPath: hasMic ? this.session.micRaw : null,
                 outputPath: muxedPath,
+                audioOffsetSec: this.audioOffsetSec,
             });
         }
         // Apply post-processing effects (zoom + tilt)

@@ -32,6 +32,8 @@ body {
 
 .app-main {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -189,4 +191,69 @@ body {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* Save folders */
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.folder-label {
+  width: 78px;
+  color: #aaa;
+}
+
+.folder-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  padding: 6px 8px;
+  background: #16213e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #ddd;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.folder-path:hover {
+  border-color: #4a9eff;
+}
+
+.folder-change {
+  padding: 6px 10px;
+  background: #0f3460;
+  border: 1px solid #4a9eff;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.folder-change:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.area-btn {
+  align-self: center;
+  margin-top: -12px;
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px dashed #4a9eff;
+  border-radius: 6px;
+  color: #cfe3ff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.area-btn:hover {
+  background: rgba(74, 158, 255, 0.1);
 }
