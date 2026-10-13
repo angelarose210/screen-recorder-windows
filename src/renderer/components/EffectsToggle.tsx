@@ -62,13 +62,26 @@ export default function EffectsToggle({ disabled, onChange }: EffectsToggleProps
     });
   };
 
+  // Saved settings live in the main process; the capture overlay can change them too
+  const apply = (c: EffectsConfig) => {
+    setZoomEnabled(c.zoom.enabled);
+    setZoomLevel(c.zoom.zoomLevel);
+    setTiltEnabled(c.tilt.enabled);
+    setTiltIntensity(c.tilt.intensity);
+    setCanvasEnabled(c.canvas.enabled);
+    setCanvasBg(c.canvas.background);
+    setCanvasPadding(c.canvas.padding);
+    setCanvasRadius(c.canvas.borderRadius);
+    setCanvasShadow(c.canvas.shadow);
+    setCursorEnabled(c.cursor.enabled);
+    setCursorSize(c.cursor.dotSize);
+    setCursorColor(c.cursor.dotColor);
+    setCursorRipple(c.cursor.clickRipple);
+  };
+
   useEffect(() => {
-    onChange({
-      zoom: { enabled: zoomEnabled, zoomLevel },
-      tilt: { enabled: tiltEnabled, intensity: tiltIntensity },
-      canvas: { enabled: canvasEnabled, background: canvasBg, padding: canvasPadding, borderRadius: canvasRadius, shadow: canvasShadow },
-      cursor: { enabled: cursorEnabled, dotSize: cursorSize, dotColor: cursorColor, clickRipple: cursorRipple },
-    });
+    window.recorder.getEffects().then((c) => c && apply(c));
+    window.recorder.onEffectsChanged(apply);
   }, []);
 
   return (

@@ -1,14 +1,10 @@
 import { spawn, spawnSync } from 'child_process';
 import * as path from 'path';
+import { getFFmpegPath } from '../ffmpeg-path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { CursorEvent } from './zoom-keyframes';
 
-function getFFmpegPath(): string {
-  const bundled = path.join(__dirname, '../../../resources/ffmpeg/ffmpeg.exe');
-  if (fs.existsSync(bundled)) return bundled;
-  return 'ffmpeg';
-}
 
 export interface CursorHighlightConfig {
   enabled: boolean;

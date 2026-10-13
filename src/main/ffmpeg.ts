@@ -1,24 +1,8 @@
 import { ChildProcess, spawn, execSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import { app } from 'electron';
+import { getFFmpegPath } from './ffmpeg-path';
 
-function getFFmpegPath(): string {
-  // Check bundled first
-  const bundledPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'ffmpeg', 'ffmpeg.exe')
-    : path.join(__dirname, '../../resources/ffmpeg/ffmpeg.exe');
-
-  if (fs.existsSync(bundledPath)) return bundledPath;
-
-  // Fall back to system FFmpeg
-  try {
-    const systemPath = execSync('where ffmpeg', { encoding: 'utf8' }).trim().split('\n')[0];
-    if (systemPath && fs.existsSync(systemPath)) return systemPath;
-  } catch {}
-
-  return 'ffmpeg'; // hope it's on PATH
-}
 
 export class FFmpegEncoder {
   private process: ChildProcess | null = null;

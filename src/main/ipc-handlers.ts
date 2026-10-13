@@ -1,10 +1,23 @@
 import { ipcMain, dialog, shell, BrowserWindow, screen } from 'electron';
 import { Recorder } from './recorder';
-import { getSettings, setSettings, getVideosDir, getScreenshotsDir } from './config';
-import { showRecordBar, updateRecordBar, closeRecordBar } from './record-bar';
-import { pickRegion } from './snip';
+import { getSettings, setSettings, getVideosDir, getScreenshotsDir, loadEffects, saveEffects, overlayEffects, withOverlayEffects } from './config';
+import { showRecordBar, updateRecordBar, closeRecordBar, showRegionOutline } from './record-bar';
+import { CaptureMode, pickRegion, saveImage } from './snip';
 
 const recorder = new Recorder();
+
+// One capture overlay for every entry point (tray, hotkeys, jump list, main window)
+let captureImpl: ((mode: CaptureMode, config?: any) => Promise<boolean>) | null = null;
+let lastMode: CaptureMode = 'screenshot';
+
+// mode omitted = whichever mode was used last
+export function openCapture(mode?: CaptureMode): Promise<boolean> {
+  if (!captureImpl) return Promise.resolve(false);
+  return captureImpl(mode ?? lastMode).catch((err) => {
+    console.error('Capture failed:', err);
+    return false;
+  });
+}
 
 export function registerIpcHandlers(mainWindow: BrowserWindow) {
   let restoreMainWindow = false;
@@ -40,19 +53,39 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   });
 
   ipcMain.handle('recorder:start', async (_event, config) => {
+    audioPrefs = { audioMic: !!config?.audioMic, audioSystem: !!config?.audioSystem };
     restoreMainWindow = mainWindow.isVisible() && !mainWindow.isMinimized();
     await startRecording(config);
   });
 
   // Drag a box (same picker as screenshots), then record just that box
-  ipcMain.handle('recorder:start-area', async (_event, config) => {
-    if (recorder.getState() !== 'idle') return false;
-    restoreMainWindow = mainWindow.isVisible() && !mainWindow.isMinimized();
-    const picked = await pickRegion('Drag the area to record &middot; click for full screen &middot; Esc to cancel', mainWindow);
+  // Mic/system audio picks from the main window, reused when recording from the tray
+  const initial = getSettings();
+  recorder.setEffectsConfig(loadEffects());
+  let audioPrefs = { audioMic: initial.audioMicDefault, audioSystem: initial.audioSystemDefault };
+
+  captureImpl = async (initialMode, config) => {
+    const idle = recorder.getState() === 'idle';
+    const wasVisible = mainWindow.isVisible() && !mainWindow.isMinimized();
+    const picked = await pickRegion({ mode: initialMode, allowVideo: idle, fx: overlayEffects(loadEffects()) }, mainWindow);
     if (!picked) {
-      if (restoreMainWindow) mainWindow.show();
-      restoreMainWindow = false;
+      if (wasVisible) mainWindow.show();
       return false;
+    }
+    lastMode = picked.mode;
+
+    if (picked.mode === 'screenshot') {
+      saveImage(picked.rect ? picked.image.crop(picked.rect) : picked.image);
+      if (wasVisible) mainWindow.showInactive();
+      return false;
+    }
+
+    // Effect chips in the overlay update the saved settings (and the main window's checkboxes)
+    if (picked.fx) {
+      const effects = withOverlayEffects(loadEffects(), picked.fx);
+      saveEffects(effects);
+      recorder.setEffectsConfig(effects);
+      mainWindow.webContents.send('effects:changed', effects);
     }
 
     // Match Electron's display to the native monitor source by its physical top-left corner
@@ -61,9 +94,33 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     const monitor = monitors.find((s: any) => Math.abs(s.x - corner.x) <= 2 && Math.abs(s.y - corner.y) <= 2) ?? monitors[0];
     if (!monitor) throw new Error('No monitor found');
 
+    restoreMainWindow = wasVisible;
     const tooSmall = !!picked.rect && (picked.rect.width < 16 || picked.rect.height < 16);
-    await startRecording({ ...config, sourceId: monitor.id, region: tooSmall ? undefined : picked.rect ?? undefined });
+    const region = tooSmall ? undefined : picked.rect ?? undefined;
+    await startRecording({
+      fps: 30,
+      ...audioPrefs,
+      ...config,
+      sourceId: monitor.id,
+      region,
+    });
+    if (region && recorder.getState() !== 'idle') {
+      // region is physical px relative to the display; the outline window wants DIP screen coords
+      const { bounds, scaleFactor: sf } = picked.display;
+      showRegionOutline({
+        x: bounds.x + region.x / sf,
+        y: bounds.y + region.y / sf,
+        width: region.width / sf,
+        height: region.height / sf,
+      });
+    }
     return true;
+  };
+
+  ipcMain.handle('recorder:start-area', async (_event, config) => {
+    if (recorder.getState() !== 'idle') return false;
+    audioPrefs = { audioMic: !!config?.audioMic, audioSystem: !!config?.audioSystem };
+    return captureImpl!('video', config);
   });
 
   // Get the full window out of the way; the floating bar (hidden from capture) takes over
@@ -96,8 +153,11 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
   });
 
   ipcMain.handle('recorder:set-effects', (_event, config) => {
+    saveEffects(config);
     recorder.setEffectsConfig(config);
   });
+
+  ipcMain.handle('effects:get', () => loadEffects());
 
   ipcMain.handle('recorder:open-output', async () => {
     await shell.openPath(getVideosDir());

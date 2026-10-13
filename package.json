@@ -1,22 +1,23 @@
 {
   "name": "screen-recorder",
-  "version": "0.1.0",
-  "description": "Polished screen recorder with AI avatar integration",
+  "version": "1.0.0",
+  "description": "Screenshots and screen recordings for Windows",
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "concurrently -k \"npm run dev:renderer\" \"npm run dev:main\"",
     "dev:renderer": "vite",
     "dev:main": "tsc -p tsconfig.node.json && node scripts/wait-for-vite.js && electron . --dev",
     "build": "tsc -p tsconfig.node.json && vite build",
-    "build:native": "cmake-js build --directory native --CDCMAKE_BUILD_TYPE=Release",
-    "rebuild:native": "cmake-js rebuild --directory native --runtime electron --runtime-version 33.4.0 --arch x64",
+    "build:native": "scripts\build-native.bat",
     "start": "electron .",
     "dist": "npm run build && electron-builder",
     "download-ffmpeg": "powershell -ExecutionPolicy Bypass -File scripts/download-ffmpeg.ps1",
-    "postinstall": "node scripts/postinstall.js"
+    "postinstall": "node scripts/postinstall.js",
+    "release": "powershell -ExecutionPolicy Bypass -File scripts/release.ps1"
   },
   "dependencies": {
     "electron-store": "^8.2.0",
+    "electron-updater": "6.3.9",
     "uuid": "^11.1.0"
   },
   "devDependencies": {

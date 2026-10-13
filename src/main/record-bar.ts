@@ -14,6 +14,15 @@ const store = new Store<{ barPos: { x: number; y: number } | null }>({
 });
 
 let bar: BrowserWindow | null = null;
+let outline: BrowserWindow | null = null;
+
+// Gap between the recorded area and the drawn frame, so the frame sits outside the capture
+// even if content protection were ignored
+const OUTLINE_PAD = 4;
+const OUTLINE_HTML = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden}
+  .frame{box-sizing:border-box;position:fixed;inset:0;border:2px dashed rgba(233,69,96,.55);border-radius:3px}
+</style></head><body><div class="frame"></div></body></html>`;
 
 const BAR_HTML = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
   html,body{margin:0;height:100%;background:transparent;overflow:hidden;user-select:none}
@@ -116,6 +125,48 @@ export function showRecordBar(onStop: () => void) {
   bar.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(BAR_HTML));
 }
 
+// Faint click-through frame around the recorded area. rect is in DIP screen coordinates.
+export function showRegionOutline(rect: { x: number; y: number; width: number; height: number }) {
+  closeRegionOutline();
+  const b = {
+    x: Math.round(rect.x - OUTLINE_PAD),
+    y: Math.round(rect.y - OUTLINE_PAD),
+    width: Math.round(rect.width + OUTLINE_PAD * 2),
+    height: Math.round(rect.height + OUTLINE_PAD * 2),
+  };
+  outline = new BrowserWindow({
+    ...b,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    focusable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    show: false,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  outline.setAlwaysOnTop(true, 'screen-saver');
+  outline.setIgnoreMouseEvents(true); // clicks pass straight through to the app underneath
+  outline.once('ready-to-show', () => {
+    if (!outline) return;
+    outline.setContentProtection(true);
+    outline.showInactive();
+    outline.setContentProtection(true);
+    outline.setBounds(b); // Windows can nudge frameless windows on show
+  });
+  outline.on('closed', () => {
+    outline = null;
+  });
+  outline.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(OUTLINE_HTML));
+}
+
+function closeRegionOutline() {
+  outline?.destroy();
+  outline = null;
+}
+
 export function updateRecordBar(channel: 'state' | 'timer', value: string | number) {
   bar?.webContents.send(`bar:${channel}`, value);
 }
@@ -124,4 +175,5 @@ export function closeRecordBar() {
   ipcMain.removeAllListeners('bar:stop');
   bar?.destroy();
   bar = null;
+  closeRegionOutline();
 }

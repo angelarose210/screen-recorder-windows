@@ -8,6 +8,10 @@ electron_1.contextBridge.exposeInMainWorld('recorder', {
     stop: () => electron_1.ipcRenderer.invoke('recorder:stop'),
     getState: () => electron_1.ipcRenderer.invoke('recorder:get-state'),
     setEffects: (config) => electron_1.ipcRenderer.invoke('recorder:set-effects', config),
+    getEffects: () => electron_1.ipcRenderer.invoke('effects:get'),
+    onEffectsChanged: (cb) => {
+        electron_1.ipcRenderer.on('effects:changed', (_event, config) => cb(config));
+    },
     onStateChange: (cb) => {
         electron_1.ipcRenderer.on('recorder:state-changed', (_event, state) => cb(state));
     },

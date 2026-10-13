@@ -36,14 +36,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.applyEffects = applyEffects;
 exports.applySimpleZoom = applySimpleZoom;
 const child_process_1 = require("child_process");
-const path = __importStar(require("path"));
+const ffmpeg_path_1 = require("../ffmpeg-path");
 const fs = __importStar(require("fs"));
-function getFFmpegPath() {
-    const bundled = path.join(__dirname, '../../../resources/ffmpeg/ffmpeg.exe');
-    if (fs.existsSync(bundled))
-        return bundled;
-    return 'ffmpeg';
-}
 function buildZoomExpression(frames, fps) {
     if (frames.length === 0) {
         return { zoom: '1', x: 'iw/2', y: 'ih/2' };
@@ -104,7 +98,7 @@ function buildZoomExpression(frames, fps) {
 }
 function applyEffects(options) {
     return new Promise((resolve, reject) => {
-        const ffmpegPath = getFFmpegPath();
+        const ffmpegPath = (0, ffmpeg_path_1.getFFmpegPath)();
         const { inputVideo, outputVideo, width, height, fps, zoomFrames, tiltFrames, background } = options;
         const filters = [];
         // Apply zoom using zoompan filter
@@ -177,7 +171,7 @@ function applyEffects(options) {
 }
 function applySimpleZoom(options) {
     return new Promise((resolve, reject) => {
-        const ffmpegPath = getFFmpegPath();
+        const ffmpegPath = (0, ffmpeg_path_1.getFFmpegPath)();
         const { inputVideo, outputVideo, width, height, fps, zoomFrames } = options;
         // Sample keypoints where zoom changes, capped at 30
         const keypoints = [];

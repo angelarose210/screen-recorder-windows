@@ -1,9 +1,10 @@
 import { app, BrowserWindow, globalShortcut, Menu, nativeImage, shell, Tray } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { registerIpcHandlers } from './ipc-handlers';
-import { getScreenshotDir, startSnip } from './snip';
+import { openCapture, registerIpcHandlers } from './ipc-handlers';
+import { getScreenshotDir } from './snip';
 import { getOutputDir } from './session';
+import { checkForUpdates, getUpdateState, installUpdateNow, setupUpdates } from './updater';
 
 const isDev = process.argv.includes('--dev');
 // Shell APIs (jump list, shortcuts) can't read inside app.asar, so point them at the unpacked copy
@@ -23,7 +24,9 @@ if (!app.requestSingleInstanceLock()) {
 
 function handleArgs(argv: string[], fromSecondInstance: boolean) {
   if (argv.includes('--snip')) {
-    startSnip(mainWindow);
+    openCapture('screenshot');
+  } else if (argv.includes('--capture')) {
+    openCapture();
   } else if (argv.includes('--record-area')) {
     mainWindow?.webContents.send('global-shortcut', 'record-area');
   } else if (argv.includes('--record')) {
@@ -81,12 +84,19 @@ function showWindow() {
   mainWindow.setAlwaysOnTop(false);
 }
 
-function createTray() {
-  tray = new Tray(nativeImage.createFromPath(ICON_PATH));
-  tray.setToolTip('Screen Recorder');
+function updateMenuItem(): Electron.MenuItemConstructorOptions {
+  const u = getUpdateState();
+  if (u.status === 'ready') return { label: `Restart to update (v${u.version})`, click: installUpdateNow };
+  if (u.status === 'downloading') return { label: `Downloading update v${u.version}...`, enabled: false };
+  if (u.status === 'checking') return { label: 'Checking for updates...', enabled: false };
+  return { label: 'Check for updates', click: () => checkForUpdates(true) };
+}
+
+function buildTrayMenu() {
+  if (!tray) return;
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Snip screenshot\tCtrl+Alt+S', click: () => startSnip(mainWindow) },
+      { label: 'Snip screenshot\tCtrl+Alt+S', click: () => openCapture('screenshot') },
       { label: 'Start/stop recording\tCtrl+Shift+R', click: () => handleArgs(['--record'], false) },
       { label: 'Record an area\tCtrl+Shift+A', click: () => handleArgs(['--record-area'], false) },
       { label: 'Open recorder', click: showWindow },
@@ -94,16 +104,25 @@ function createTray() {
       { label: 'Open screenshots folder', click: () => shell.openPath(getScreenshotDir()) },
       { label: 'Open recordings folder', click: () => shell.openPath(getOutputDir()) },
       { type: 'separator' },
+      updateMenuItem(),
+      { label: `Version ${app.getVersion()}`, enabled: false },
       { label: 'Quit', click: () => { quitting = true; app.quit(); } },
     ])
   );
-  tray.on('click', () => startSnip(mainWindow));
+}
+
+function createTray() {
+  tray = new Tray(nativeImage.createFromPath(ICON_PATH));
+  tray.setToolTip('Screen Recorder: click to capture');
+  buildTrayMenu();
+  // Overlay opens in whichever mode (Screenshot/Video) was used last; toggle with S / V
+  tray.on('click', () => openCapture());
 }
 
 function registerShortcuts() {
   const shortcuts: Array<[string, () => void]> = [
-    ['CommandOrControl+Alt+S', () => startSnip(mainWindow)],
-    ['PrintScreen', () => startSnip(mainWindow)],
+    ['CommandOrControl+Alt+S', () => openCapture('screenshot')],
+    ['PrintScreen', () => openCapture('screenshot')],
     ['CommandOrControl+Shift+R', () => mainWindow?.webContents.send('global-shortcut', 'toggle-recording')],
     ['CommandOrControl+Shift+A', () => mainWindow?.webContents.send('global-shortcut', 'record-area')],
   ];
@@ -129,6 +148,7 @@ function onReady() {
   createWindow();
   createTray();
   registerShortcuts();
+  setupUpdates(() => buildTrayMenu());
   mainWindow!.once('ready-to-show', () => handleArgs(process.argv, false));
 }
 
@@ -139,7 +159,7 @@ function ensureStartMenuShortcut(exe: string, args: string) {
   shell.writeShortcutLink(lnk, fs.existsSync(lnk) ? 'update' : 'create', {
     target: exe,
     args,
-    cwd: app.getAppPath(),
+    cwd: path.dirname(exe),
     icon: ICON_PATH,
     iconIndex: 0,
     appUserModelId: 'com.screenrecorder.app',

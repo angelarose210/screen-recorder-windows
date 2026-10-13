@@ -10,13 +10,39 @@
     "resources/icon.ico",
     "resources/icon.png"
   ],
+  "extraResources": [
+    {
+      "from": "resources/ffmpeg/ffmpeg.exe",
+      "to": "ffmpeg/ffmpeg.exe"
+    }
+  ],
   "asarUnpack": [
     "native/build/*.node",
     "resources/icon.ico"
   ],
   "npmRebuild": false,
   "win": {
-    "target": ["dir"],
-    "icon": "resources/icon.ico"
-  }
+    "target": [
+      "nsis"
+    ],
+    "icon": "resources/icon.ico",
+    "artifactName": "Screen-Recorder-Setup-${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": true,
+    "perMachine": false,
+    "runAfterFinish": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Screen Recorder",
+    "deleteAppDataOnUninstall": false
+  },
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "angelarose210",
+      "repo": "screen-recorder-windows",
+      "releaseType": "release"
+    }
+  ]
 }

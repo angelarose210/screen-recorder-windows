@@ -1,3 +1,5 @@
 node_modules/
 native/build/
 release/
+resources/ffmpeg/
+test-output/

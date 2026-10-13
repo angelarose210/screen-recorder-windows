@@ -1,14 +1,10 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
+import { getFFmpegPath } from '../ffmpeg-path';
 import * as fs from 'fs';
 import { FrameZoomData } from './zoom-keyframes';
 import { FrameTiltData } from './tilt-effect';
 
-function getFFmpegPath(): string {
-  const bundled = path.join(__dirname, '../../../resources/ffmpeg/ffmpeg.exe');
-  if (fs.existsSync(bundled)) return bundled;
-  return 'ffmpeg';
-}
 
 function buildZoomExpression(frames: FrameZoomData[], fps: number): { zoom: string; x: string; y: string } {
   if (frames.length === 0) {

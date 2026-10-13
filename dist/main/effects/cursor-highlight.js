@@ -37,14 +37,9 @@ exports.DEFAULT_CURSOR_HIGHLIGHT = void 0;
 exports.applyCursorHighlight = applyCursorHighlight;
 const child_process_1 = require("child_process");
 const path = __importStar(require("path"));
+const ffmpeg_path_1 = require("../ffmpeg-path");
 const fs = __importStar(require("fs"));
 const os = __importStar(require("os"));
-function getFFmpegPath() {
-    const bundled = path.join(__dirname, '../../../resources/ffmpeg/ffmpeg.exe');
-    if (fs.existsSync(bundled))
-        return bundled;
-    return 'ffmpeg';
-}
 exports.DEFAULT_CURSOR_HIGHLIGHT = {
     enabled: true,
     dotSize: 10,
@@ -55,7 +50,7 @@ exports.DEFAULT_CURSOR_HIGHLIGHT = {
     rippleDuration: 0.4,
 };
 function generateCursorDot(size, color, opacity, outputPath) {
-    const ffmpegPath = getFFmpegPath();
+    const ffmpegPath = (0, ffmpeg_path_1.getFFmpegPath)();
     const hex = color.replace('#', '');
     const dim = size * 4;
     const alphaVal = Math.round(opacity * 255);
@@ -137,7 +132,7 @@ function buildOverlayExpr(keypoints, axis, dotDim) {
 }
 function applyCursorHighlight(options) {
     return new Promise((resolve, reject) => {
-        const ffmpegPath = getFFmpegPath();
+        const ffmpegPath = (0, ffmpeg_path_1.getFFmpegPath)();
         const { inputVideo, outputVideo, width, height, fps, duration, cursorEvents, config } = options;
         if (cursorEvents.length === 0) {
             fs.copyFileSync(inputVideo, outputVideo);

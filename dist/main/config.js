@@ -37,6 +37,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getSettings = getSettings;
+exports.loadEffects = loadEffects;
+exports.saveEffects = saveEffects;
+exports.overlayEffects = overlayEffects;
+exports.withOverlayEffects = withOverlayEffects;
 exports.setSettings = setSettings;
 exports.getVideosDir = getVideosDir;
 exports.getScreenshotsDir = getScreenshotsDir;
@@ -44,6 +48,13 @@ const electron_store_1 = __importDefault(require("electron-store"));
 const electron_1 = require("electron");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
+const TILT_INTENSITIES = ['subtle', 'medium', 'dramatic'];
+const defaultEffects = {
+    zoom: { enabled: true, zoomLevel: 1.5 },
+    tilt: { enabled: true, intensity: 'subtle' },
+    canvas: { enabled: true, background: '#1a1a2e', padding: 48, borderRadius: 12, shadow: true },
+    cursor: { enabled: true, dotSize: 10, dotColor: '#ffcc00', clickRipple: true },
+};
 const defaults = {
     fps: 30,
     outputDir: '',
@@ -51,6 +62,7 @@ const defaults = {
     lastMode: 'quick',
     audioMicDefault: true,
     audioSystemDefault: true,
+    effects: defaultEffects,
 };
 const store = new electron_store_1.default({ defaults });
 function getSettings() {
@@ -61,6 +73,47 @@ function getSettings() {
         lastMode: store.get('lastMode'),
         audioMicDefault: store.get('audioMicDefault'),
         audioSystemDefault: store.get('audioSystemDefault'),
+        effects: loadEffects(),
+    };
+}
+// Effects survive restarts and apply no matter where a recording is started from
+function loadEffects() {
+    const saved = store.get('effects') ?? defaultEffects;
+    return {
+        zoom: { ...defaultEffects.zoom, ...saved.zoom },
+        tilt: { ...defaultEffects.tilt, ...saved.tilt },
+        canvas: { ...defaultEffects.canvas, ...saved.canvas },
+        cursor: { ...defaultEffects.cursor, ...saved.cursor },
+    };
+}
+function saveEffects(effects) {
+    store.set('effects', effects);
+}
+function overlayEffects(e) {
+    return {
+        zoom: e.zoom.enabled,
+        tilt: e.tilt.enabled,
+        canvas: e.canvas.enabled,
+        cursor: e.cursor.enabled,
+        zoomLevel: e.zoom.zoomLevel,
+        tiltIntensity: e.tilt.intensity,
+    };
+}
+function withOverlayEffects(e, t) {
+    return {
+        zoom: {
+            ...e.zoom,
+            enabled: !!t.zoom,
+            // Same range as the main window slider
+            zoomLevel: Number.isFinite(t.zoomLevel) ? Math.min(3, Math.max(1.2, Math.round(t.zoomLevel * 10) / 10)) : e.zoom.zoomLevel,
+        },
+        tilt: {
+            ...e.tilt,
+            enabled: !!t.tilt,
+            intensity: TILT_INTENSITIES.includes(t.tiltIntensity) ? t.tiltIntensity : e.tilt.intensity,
+        },
+        canvas: { ...e.canvas, enabled: !!t.canvas },
+        cursor: { ...e.cursor, enabled: !!t.cursor },
     };
 }
 function setSettings(partial) {
@@ -68,9 +121,10 @@ function setSettings(partial) {
         store.set(key, value);
     }
 }
-// Default save location: the local E: data drive if present, never OneDrive
+// Default save location: an existing E:\Screen Captures (this PC), else the home folder. Never OneDrive.
+// Not "any E: drive": on other PCs E: is often a USB stick or DVD drive.
 function defaultRoot() {
-    if (fs.existsSync('E:\\'))
+    if (fs.existsSync('E:\\Screen Captures'))
         return 'E:\\Screen Captures';
     return path.join(electron_1.app.getPath('home'), 'Screen Captures');
 }

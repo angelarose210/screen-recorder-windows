@@ -9,6 +9,8 @@ export interface RecorderAPI {
     }>;
     getState: () => Promise<string>;
     setEffects: (config: any) => Promise<void>;
+    getEffects: () => Promise<any>;
+    onEffectsChanged: (cb: (config: any) => void) => void;
     onStateChange: (cb: (state: string) => void) => void;
     onTimer: (cb: (seconds: number) => void) => void;
     onGlobalShortcut: (cb: (action: string) => void) => void;

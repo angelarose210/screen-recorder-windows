@@ -39,6 +39,7 @@ const fs = __importStar(require("fs"));
 const ipc_handlers_1 = require("./ipc-handlers");
 const snip_1 = require("./snip");
 const session_1 = require("./session");
+const updater_1 = require("./updater");
 const isDev = process.argv.includes('--dev');
 // Shell APIs (jump list, shortcuts) can't read inside app.asar, so point them at the unpacked copy
 const ICON_PATH = path.join(__dirname, '../../resources/icon.ico').replace('app.asar', 'app.asar.unpacked');
@@ -55,7 +56,10 @@ else {
 }
 function handleArgs(argv, fromSecondInstance) {
     if (argv.includes('--snip')) {
-        (0, snip_1.startSnip)(mainWindow);
+        (0, ipc_handlers_1.openCapture)('screenshot');
+    }
+    else if (argv.includes('--capture')) {
+        (0, ipc_handlers_1.openCapture)();
     }
     else if (argv.includes('--record-area')) {
         mainWindow?.webContents.send('global-shortcut', 'record-area');
@@ -113,11 +117,21 @@ function showWindow() {
     mainWindow.focus();
     mainWindow.setAlwaysOnTop(false);
 }
-function createTray() {
-    tray = new electron_1.Tray(electron_1.nativeImage.createFromPath(ICON_PATH));
-    tray.setToolTip('Screen Recorder');
+function updateMenuItem() {
+    const u = (0, updater_1.getUpdateState)();
+    if (u.status === 'ready')
+        return { label: `Restart to update (v${u.version})`, click: updater_1.installUpdateNow };
+    if (u.status === 'downloading')
+        return { label: `Downloading update v${u.version}...`, enabled: false };
+    if (u.status === 'checking')
+        return { label: 'Checking for updates...', enabled: false };
+    return { label: 'Check for updates', click: () => (0, updater_1.checkForUpdates)(true) };
+}
+function buildTrayMenu() {
+    if (!tray)
+        return;
     tray.setContextMenu(electron_1.Menu.buildFromTemplate([
-        { label: 'Snip screenshot\tCtrl+Alt+S', click: () => (0, snip_1.startSnip)(mainWindow) },
+        { label: 'Snip screenshot\tCtrl+Alt+S', click: () => (0, ipc_handlers_1.openCapture)('screenshot') },
         { label: 'Start/stop recording\tCtrl+Shift+R', click: () => handleArgs(['--record'], false) },
         { label: 'Record an area\tCtrl+Shift+A', click: () => handleArgs(['--record-area'], false) },
         { label: 'Open recorder', click: showWindow },
@@ -125,14 +139,22 @@ function createTray() {
         { label: 'Open screenshots folder', click: () => electron_1.shell.openPath((0, snip_1.getScreenshotDir)()) },
         { label: 'Open recordings folder', click: () => electron_1.shell.openPath((0, session_1.getOutputDir)()) },
         { type: 'separator' },
+        updateMenuItem(),
+        { label: `Version ${electron_1.app.getVersion()}`, enabled: false },
         { label: 'Quit', click: () => { quitting = true; electron_1.app.quit(); } },
     ]));
-    tray.on('click', () => (0, snip_1.startSnip)(mainWindow));
+}
+function createTray() {
+    tray = new electron_1.Tray(electron_1.nativeImage.createFromPath(ICON_PATH));
+    tray.setToolTip('Screen Recorder: click to capture');
+    buildTrayMenu();
+    // Overlay opens in whichever mode (Screenshot/Video) was used last; toggle with S / V
+    tray.on('click', () => (0, ipc_handlers_1.openCapture)());
 }
 function registerShortcuts() {
     const shortcuts = [
-        ['CommandOrControl+Alt+S', () => (0, snip_1.startSnip)(mainWindow)],
-        ['PrintScreen', () => (0, snip_1.startSnip)(mainWindow)],
+        ['CommandOrControl+Alt+S', () => (0, ipc_handlers_1.openCapture)('screenshot')],
+        ['PrintScreen', () => (0, ipc_handlers_1.openCapture)('screenshot')],
         ['CommandOrControl+Shift+R', () => mainWindow?.webContents.send('global-shortcut', 'toggle-recording')],
         ['CommandOrControl+Shift+A', () => mainWindow?.webContents.send('global-shortcut', 'record-area')],
     ];
@@ -155,6 +177,7 @@ function onReady() {
     createWindow();
     createTray();
     registerShortcuts();
+    (0, updater_1.setupUpdates)(() => buildTrayMenu());
     mainWindow.once('ready-to-show', () => handleArgs(process.argv, false));
 }
 // Start Menu shortcut carrying our AppUserModelId: gives notifications the right name/icon
@@ -164,7 +187,7 @@ function ensureStartMenuShortcut(exe, args) {
     electron_1.shell.writeShortcutLink(lnk, fs.existsSync(lnk) ? 'update' : 'create', {
         target: exe,
         args,
-        cwd: electron_1.app.getAppPath(),
+        cwd: path.dirname(exe),
         icon: ICON_PATH,
         iconIndex: 0,
         appUserModelId: 'com.screenrecorder.app',
