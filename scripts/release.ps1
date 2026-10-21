@@ -15,11 +15,15 @@ npm version $Bump --no-git-tag-version | Out-Null
 $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
 npm run build
 if ($LASTEXITCODE) { throw 'build failed' }
-npx electron-builder --win --publish always
-if ($LASTEXITCODE) { throw 'electron-builder failed' }
 
+# Tag and push before publishing: electron-builder creates the tag on GitHub if it's missing,
+# which points it at the remote's old HEAD and makes our own tag push fail.
 git add package.json package-lock.json
 git commit -m "Release v$version"
 git tag "v$version"
-git push origin HEAD --tags
+git push origin HEAD "v$version"
+if ($LASTEXITCODE) { throw 'git push failed' }
+
+npx electron-builder --win --publish always
+if ($LASTEXITCODE) { throw 'electron-builder failed' }
 Write-Host "Released v$version"
