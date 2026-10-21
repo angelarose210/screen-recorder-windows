@@ -146,6 +146,12 @@ const OVERLAY_HTML = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     document.querySelector('#modes button[data-m="video"]').disabled = !opts.allowVideo;
     setMode(opts.allowVideo ? opts.mode : 'screenshot');
   });
+  window.snip.onSwap((url) => {
+    shot.src = url;
+    start = null; rect = null;
+    sel.style.display = 'none'; size.style.display = 'none';
+    dim.style.display = ''; hint.style.display = '';
+  });
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') window.snip.cancel();
     if (e.key === 's' || e.key === 'S') setMode('screenshot');
@@ -159,6 +165,7 @@ const OVERLAY_HTML = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
   window.addEventListener('mousedown', (e) => {
     if (e.button !== 0) { window.snip.cancel(); return; }
     start = { x: e.clientX, y: e.clientY };
+    window.snip.drag(true);
   });
   window.addEventListener('mousemove', (e) => {
     if (!start) return;
@@ -174,6 +181,7 @@ const OVERLAY_HTML = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     if (!start) return;
     const r = rect && rect.width > 4 && rect.height > 4 ? rect : null; // tiny drag = click = full screen
     start = null;
+    window.snip.drag(false);
     window.snip.done(r, mode, fx);
   });
 </script></body></html>`;
@@ -187,17 +195,13 @@ async function pickRegion(opts, hideFirst) {
         hideFirst.hide();
         await new Promise((r) => setTimeout(r, 200)); // let the window fade out of the capture
     }
-    const display = electron_1.screen.getDisplayNearestPoint(electron_1.screen.getCursorScreenPoint());
-    const sf = display.scaleFactor;
-    const thumbSize = {
-        width: Math.round(display.size.width * sf),
-        height: Math.round(display.size.height * sf),
-    };
-    const sources = await electron_1.desktopCapturer.getSources({ types: ['screen'], thumbnailSize: thumbSize });
-    const source = sources.find((s) => s.display_id === String(display.id)) ?? sources[0];
-    if (!source)
+    let display = electron_1.screen.getDisplayNearestPoint(electron_1.screen.getCursorScreenPoint());
+    const first = await grabDisplay(display);
+    if (!first)
         return null;
-    const image = source.thumbnail;
+    let image = first;
+    // Frozen frames per display, so moving back to a screen shows the same moment
+    const frames = new Map([[display.id, first]]);
     overlay = new electron_1.BrowserWindow({
         ...display.bounds,
         frame: false,
@@ -216,8 +220,39 @@ async function pickRegion(opts, hideFirst) {
     });
     overlay.setAlwaysOnTop(true, 'screen-saver');
     overlay.setBounds(display.bounds);
+    // Multi-monitor: when the cursor moves onto another screen (and no drag is in progress),
+    // move the overlay there with that screen's frozen frame.
+    let dragging = false;
+    let switching = false;
+    electron_1.ipcMain.on('snip:drag', (_e, d) => { dragging = d; });
+    const follow = setInterval(async () => {
+        if (!overlay || dragging || switching)
+            return;
+        const next = electron_1.screen.getDisplayNearestPoint(electron_1.screen.getCursorScreenPoint());
+        if (next.id === display.id)
+            return;
+        switching = true;
+        try {
+            const frame = frames.get(next.id) ?? (await grabDisplay(next));
+            if (!frame || !overlay)
+                return;
+            frames.set(next.id, frame);
+            display = next;
+            image = frame;
+            // Twice: Electron sizes a window moved across monitors with different DPI using the old scale
+            overlay.setBounds(next.bounds);
+            overlay.setBounds(next.bounds);
+            overlay.webContents.send('snip:swap', frame.toDataURL());
+            overlay.focus();
+        }
+        finally {
+            switching = false;
+        }
+    }, 120);
     return new Promise((resolve) => {
         const cleanup = () => {
+            clearInterval(follow);
+            electron_1.ipcMain.removeAllListeners('snip:drag');
             electron_1.ipcMain.removeAllListeners('snip:done');
             electron_1.ipcMain.removeAllListeners('snip:cancel');
             overlay?.destroy();
@@ -229,6 +264,7 @@ async function pickRegion(opts, hideFirst) {
         });
         electron_1.ipcMain.once('snip:done', (_e, r, mode, fx) => {
             cleanup();
+            const sf = display.scaleFactor;
             const size = image.getSize();
             const rect = r
                 ? {
@@ -248,6 +284,13 @@ async function pickRegion(opts, hideFirst) {
         overlay.on('blur', () => overlay?.focus());
         overlay.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(OVERLAY_HTML));
     });
+}
+async function grabDisplay(display) {
+    const sf = display.scaleFactor;
+    const thumbnailSize = { width: Math.round(display.size.width * sf), height: Math.round(display.size.height * sf) };
+    const sources = await electron_1.desktopCapturer.getSources({ types: ['screen'], thumbnailSize });
+    const source = sources.find((s) => s.display_id === String(display.id)) ?? sources[0];
+    return source ? source.thumbnail : null;
 }
 function saveImage(img) {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
