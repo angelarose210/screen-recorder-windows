@@ -37,6 +37,7 @@ export interface AppSettings {
   lastMode: 'quick' | 'polished';
   audioMicDefault: boolean;
   audioSystemDefault: boolean;
+  startAtLogin: boolean;
   effects: EffectsSettings;
 }
 
@@ -47,6 +48,7 @@ const defaults: AppSettings = {
   lastMode: 'quick',
   audioMicDefault: true,
   audioSystemDefault: true,
+  startAtLogin: true,
   effects: defaultEffects,
 };
 
@@ -60,6 +62,7 @@ export function getSettings(): AppSettings {
     lastMode: store.get('lastMode'),
     audioMicDefault: store.get('audioMicDefault'),
     audioSystemDefault: store.get('audioSystemDefault'),
+    startAtLogin: store.get('startAtLogin'),
     effects: loadEffects(),
   };
 }

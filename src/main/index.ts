@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { openCapture, registerIpcHandlers } from './ipc-handlers';
 import { getScreenshotDir } from './snip';
 import { getOutputDir } from './session';
+import { getSettings, setSettings } from './config';
 import { checkForUpdates, getUpdateState, installUpdateNow, setupUpdates } from './updater';
 
 const isDev = process.argv.includes('--dev');
@@ -104,11 +105,18 @@ function buildTrayMenu() {
       { label: 'Open screenshots folder', click: () => shell.openPath(getScreenshotDir()) },
       { label: 'Open recordings folder', click: () => shell.openPath(getOutputDir()) },
       { type: 'separator' },
+      { label: 'Start with Windows', type: 'checkbox', checked: getSettings().startAtLogin, click: (item) => setStartAtLogin(item.checked) },
       updateMenuItem(),
       { label: `Version ${app.getVersion()}`, enabled: false },
       { label: 'Quit', click: () => { quitting = true; app.quit(); } },
     ])
   );
+}
+
+// Launch hidden at sign-in so the tray icon and hotkeys are there after a restart
+function setStartAtLogin(enabled: boolean) {
+  setSettings({ startAtLogin: enabled });
+  if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: enabled, args: ['--hidden'] });
 }
 
 function createTray() {
@@ -144,6 +152,7 @@ function onReady() {
   ]);
 
   ensureStartMenuShortcut(exe, appArgs.trim());
+  setStartAtLogin(getSettings().startAtLogin);
 
   createWindow();
   createTray();

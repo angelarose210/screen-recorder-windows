@@ -70,14 +70,13 @@ class FFmpegEncoder {
             args.push('-itsoffset', offset, '-i', options.systemAudioPath);
         if (hasMic)
             args.push('-itsoffset', offset, '-i', options.micAudioPath);
+        // apad extends audio with silence so -shortest always ends at the video's length.
+        // Without it, a short/empty system-audio track truncates the whole video.
         if (hasSystem && hasMic) {
-            args.push('-filter_complex', '[1:a][2:a]amix=inputs=2:duration=longest[aout]', '-map', '0:v', '-map', '[aout]');
+            args.push('-filter_complex', '[1:a][2:a]amix=inputs=2:duration=longest,apad[aout]', '-map', '0:v', '-map', '[aout]');
         }
-        else if (hasSystem) {
-            args.push('-map', '0:v', '-map', '1:a');
-        }
-        else if (hasMic) {
-            args.push('-map', '0:v', '-map', '1:a');
+        else if (hasSystem || hasMic) {
+            args.push('-filter_complex', '[1:a]apad[aout]', '-map', '0:v', '-map', '[aout]');
         }
         else {
             args.push('-map', '0:v');

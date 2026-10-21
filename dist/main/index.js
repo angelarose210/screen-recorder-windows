@@ -39,6 +39,7 @@ const fs = __importStar(require("fs"));
 const ipc_handlers_1 = require("./ipc-handlers");
 const snip_1 = require("./snip");
 const session_1 = require("./session");
+const config_1 = require("./config");
 const updater_1 = require("./updater");
 const isDev = process.argv.includes('--dev');
 // Shell APIs (jump list, shortcuts) can't read inside app.asar, so point them at the unpacked copy
@@ -139,10 +140,17 @@ function buildTrayMenu() {
         { label: 'Open screenshots folder', click: () => electron_1.shell.openPath((0, snip_1.getScreenshotDir)()) },
         { label: 'Open recordings folder', click: () => electron_1.shell.openPath((0, session_1.getOutputDir)()) },
         { type: 'separator' },
+        { label: 'Start with Windows', type: 'checkbox', checked: (0, config_1.getSettings)().startAtLogin, click: (item) => setStartAtLogin(item.checked) },
         updateMenuItem(),
         { label: `Version ${electron_1.app.getVersion()}`, enabled: false },
         { label: 'Quit', click: () => { quitting = true; electron_1.app.quit(); } },
     ]));
+}
+// Launch hidden at sign-in so the tray icon and hotkeys are there after a restart
+function setStartAtLogin(enabled) {
+    (0, config_1.setSettings)({ startAtLogin: enabled });
+    if (electron_1.app.isPackaged)
+        electron_1.app.setLoginItemSettings({ openAtLogin: enabled, args: ['--hidden'] });
 }
 function createTray() {
     tray = new electron_1.Tray(electron_1.nativeImage.createFromPath(ICON_PATH));
@@ -174,6 +182,7 @@ function onReady() {
         { program: exe, arguments: `${appArgs}--record-area`, iconPath: ICON_PATH, iconIndex: 0, title: 'Record an area', description: 'Drag a box, then record only that area' },
     ]);
     ensureStartMenuShortcut(exe, appArgs.trim());
+    setStartAtLogin((0, config_1.getSettings)().startAtLogin);
     createWindow();
     createTray();
     registerShortcuts();

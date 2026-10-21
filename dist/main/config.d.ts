@@ -37,6 +37,7 @@ export interface AppSettings {
     lastMode: 'quick' | 'polished';
     audioMicDefault: boolean;
     audioSystemDefault: boolean;
+    startAtLogin: boolean;
     effects: EffectsSettings;
 }
 export declare function getSettings(): AppSettings;

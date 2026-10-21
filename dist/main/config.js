@@ -62,6 +62,7 @@ const defaults = {
     lastMode: 'quick',
     audioMicDefault: true,
     audioSystemDefault: true,
+    startAtLogin: true,
     effects: defaultEffects,
 };
 const store = new electron_store_1.default({ defaults });
@@ -73,6 +74,7 @@ function getSettings() {
         lastMode: store.get('lastMode'),
         audioMicDefault: store.get('audioMicDefault'),
         audioSystemDefault: store.get('audioSystemDefault'),
+        startAtLogin: store.get('startAtLogin'),
         effects: loadEffects(),
     };
 }

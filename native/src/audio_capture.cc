@@ -115,6 +115,22 @@ void AudioCapture::captureAudioLoop(const std::string& outputPath, bool isLoopba
     audioClient->Start();
 
     DWORD totalDataBytes = 0;
+    const UINT32 blockBytes = mixFormat->nChannels * sizeof(int16_t);
+    // WASAPI loopback delivers no packets while nothing is playing. Fill those gaps with
+    // silence so the WAV stays as long as wall-clock time (otherwise audio is short/empty
+    // and drifts out of sync).
+    const ULONGLONG captureStartMs = GetTickCount64();
+    UINT64 framesWritten = 0;
+    auto padToNow = [&]() {
+        UINT64 expected = (GetTickCount64() - captureStartMs) * mixFormat->nSamplesPerSec / 1000;
+        if (expected <= framesWritten + mixFormat->nSamplesPerSec / 20) return; // <50ms behind: fine
+        UINT64 gap = expected - framesWritten;
+        std::vector<int16_t> silence((size_t)gap * mixFormat->nChannels, 0);
+        DWORD written;
+        WriteFile(hFile, silence.data(), (DWORD)(gap * blockBytes), &written, nullptr);
+        totalDataBytes += (DWORD)(gap * blockBytes);
+        framesWritten += gap;
+    };
     bool isFloat = (mixFormat->wFormatTag == WAVE_FORMAT_IEEE_FLOAT) ||
         (mixFormat->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
          mixFormat->cbSize >= 22);
@@ -159,12 +175,16 @@ void AudioCapture::captureAudioLoop(const std::string& outputPath, bool isLoopba
             }
 
             totalDataBytes += bytesToWrite;
+            framesWritten += numFrames;
             captureClient->ReleaseBuffer(numFrames);
             captureClient->GetNextPacketSize(&packetLength);
         }
+
+        if (isLoopback && packetLength == 0) padToNow();
     }
 
     audioClient->Stop();
+    if (isLoopback) padToNow();
 
     // Update WAV header with actual data size
     SetFilePointer(hFile, 0, nullptr, FILE_BEGIN);
