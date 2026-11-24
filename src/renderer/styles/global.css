@@ -163,6 +163,12 @@ body {
   word-break: break-all;
 }
 
+.last-output-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
 .last-output button {
   padding: 6px 16px;
   background: #0f3460;
@@ -256,4 +262,19 @@ body {
 
 .area-btn:hover {
   background: rgba(74, 158, 255, 0.1);
+}
+
+.trim-link {
+  align-self: center;
+  padding: 4px 8px;
+  background: transparent;
+  border: none;
+  color: #8fb8ff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.trim-link:hover {
+  color: #cfe3ff;
+  text-decoration: underline;
 }

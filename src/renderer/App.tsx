@@ -27,6 +27,7 @@ declare global {
       selectOutputFolder: (kind?: 'videos' | 'screenshots') => Promise<string | null>;
       getFolders: () => Promise<{ videos: string; screenshots: string }>;
       openFolder: (kind: 'videos' | 'screenshots') => Promise<void>;
+      openTrim: (filePath?: string) => Promise<boolean>;
     };
   }
 }
@@ -139,10 +140,21 @@ export default function App() {
           <div className="last-output">
             <p>Saved to: {lastOutput}</p>
             {effectsApplied && <p className="effects-badge">Zoom + Tilt applied</p>}
-            <button onClick={() => window.recorder.openOutputFolder()}>
-              Open Folder
-            </button>
+            <div className="last-output-actions">
+              <button onClick={() => window.recorder.openTrim(lastOutput)} title="Cut the start or end off this recording">
+                Trim
+              </button>
+              <button onClick={() => window.recorder.openOutputFolder()}>
+                Open Folder
+              </button>
+            </div>
           </div>
+        )}
+
+        {state === 'idle' && (
+          <button className="trim-link" onClick={() => window.recorder.openTrim()}>
+            Trim a video...
+          </button>
         )}
       </main>
 

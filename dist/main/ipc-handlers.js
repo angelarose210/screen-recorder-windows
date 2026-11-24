@@ -1,12 +1,47 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.openCapture = openCapture;
 exports.registerIpcHandlers = registerIpcHandlers;
 const electron_1 = require("electron");
+const fs = __importStar(require("fs"));
 const recorder_1 = require("./recorder");
 const config_1 = require("./config");
 const record_bar_1 = require("./record-bar");
 const snip_1 = require("./snip");
+const trim_window_1 = require("./trim-window");
 const recorder = new recorder_1.Recorder();
 // One capture overlay for every entry point (tray, hotkeys, jump list, main window)
 let captureImpl = null;
@@ -37,6 +72,7 @@ function registerIpcHandlers(mainWindow) {
         try {
             const result = await recorder.stop();
             mainWindow.webContents.send('recorder:finished', result);
+            (0, trim_window_1.recordingSaved)(result.outputPath);
             return result;
         }
         finally {
@@ -151,6 +187,14 @@ function registerIpcHandlers(mainWindow) {
     electron_1.ipcMain.handle('effects:get', () => (0, config_1.loadEffects)());
     electron_1.ipcMain.handle('recorder:open-output', async () => {
         await electron_1.shell.openPath((0, config_1.getVideosDir)());
+    });
+    // With a path (just-finished recording) open it directly; without one, ask for a file
+    electron_1.ipcMain.handle('trim:open', async (_event, filePath) => {
+        if (filePath && fs.existsSync(filePath)) {
+            (0, trim_window_1.openTrimWindow)(filePath);
+            return true;
+        }
+        return (0, trim_window_1.pickAndOpenTrim)(mainWindow);
     });
     electron_1.ipcMain.handle('folders:get', () => ({
         videos: (0, config_1.getVideosDir)(),

@@ -1,8 +1,10 @@
 import { ipcMain, dialog, shell, BrowserWindow, screen } from 'electron';
+import * as fs from 'fs';
 import { Recorder } from './recorder';
 import { getSettings, setSettings, getVideosDir, getScreenshotsDir, loadEffects, saveEffects, overlayEffects, withOverlayEffects } from './config';
 import { showRecordBar, updateRecordBar, closeRecordBar, showRegionOutline } from './record-bar';
 import { CaptureMode, pickRegion, saveImage } from './snip';
+import { openTrimWindow, pickAndOpenTrim, recordingSaved } from './trim-window';
 
 const recorder = new Recorder();
 
@@ -38,6 +40,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
     try {
       const result = await recorder.stop();
       mainWindow.webContents.send('recorder:finished', result);
+      recordingSaved(result.outputPath);
       return result;
     } finally {
       closeRecordBar();
@@ -161,6 +164,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow) {
 
   ipcMain.handle('recorder:open-output', async () => {
     await shell.openPath(getVideosDir());
+  });
+
+  // With a path (just-finished recording) open it directly; without one, ask for a file
+  ipcMain.handle('trim:open', async (_event, filePath?: string) => {
+    if (filePath && fs.existsSync(filePath)) {
+      openTrimWindow(filePath);
+      return true;
+    }
+    return pickAndOpenTrim(mainWindow);
   });
 
   ipcMain.handle('folders:get', () => ({

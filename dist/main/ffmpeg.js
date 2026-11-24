@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FFmpegEncoder = void 0;
+exports.trimVideo = trimVideo;
 const child_process_1 = require("child_process");
 const ffmpeg_path_1 = require("./ffmpeg-path");
 class FFmpegEncoder {
@@ -95,3 +96,45 @@ class FFmpegEncoder {
     }
 }
 exports.FFmpegEncoder = FFmpegEncoder;
+// Re-encodes [start, end) of a video. Stream copy would be instant but can only cut on
+// keyframes, which our ultrafast encoder spaces ~8s apart, so short trims would miss.
+// Input seeking (-ss before -i) is frame-accurate when transcoding.
+function trimVideo(options) {
+    const length = options.end - options.start;
+    const args = [
+        '-y',
+        '-ss', options.start.toFixed(3),
+        '-i', options.inputPath,
+        '-t', length.toFixed(3),
+        '-map', '0:v:0',
+        '-map', '0:a?',
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', '18',
+        '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        '-movflags', '+faststart',
+        options.outputPath,
+    ];
+    return new Promise((resolve, reject) => {
+        const proc = (0, child_process_1.spawn)((0, ffmpeg_path_1.getFFmpegPath)(), args, { stdio: ['ignore', 'ignore', 'pipe'] });
+        let tail = '';
+        proc.stderr?.on('data', (chunk) => {
+            const text = chunk.toString();
+            tail = (tail + text).slice(-2000);
+            const m = /time=(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(text);
+            if (m && options.onProgress && length > 0) {
+                const t = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+                options.onProgress(Math.min(1, t / length));
+            }
+        });
+        proc.on('error', reject);
+        proc.on('exit', (code) => {
+            if (code === 0)
+                resolve();
+            else
+                reject(new Error(`FFmpeg trim exited with code ${code}: ${tail.trim().split(/\r?\n/).pop()}`));
+        });
+    });
+}

@@ -6,6 +6,7 @@ import { getScreenshotDir } from './snip';
 import { getOutputDir } from './session';
 import { getSettings, setSettings } from './config';
 import { checkForUpdates, getUpdateState, installUpdateNow, setupUpdates } from './updater';
+import { openTrimWindow, pickAndOpenTrim, registerMediaScheme, setupTrim, trimLastRecording } from './trim-window';
 
 const isDev = process.argv.includes('--dev');
 // Shell APIs (jump list, shortcuts) can't read inside app.asar, so point them at the unpacked copy
@@ -15,6 +16,8 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;
 
+registerMediaScheme();
+
 // One instance only: launching again (taskbar icon, jump list) forwards its args here
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -23,8 +26,19 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(onReady);
 }
 
+// --trim=<file>, or --trim <file>. Chromium moves switches ahead of plain values,
+// so in the second form the file ends up last rather than right after --trim.
+function trimTarget(argv: string[]): string | null {
+  const eq = argv.find((a) => a.startsWith('--trim='));
+  const file = eq ? eq.slice('--trim='.length) : argv.includes('--trim') ? argv[argv.length - 1] : null;
+  return file && !file.startsWith('--') && fs.existsSync(file) ? file : null;
+}
+
 function handleArgs(argv: string[], fromSecondInstance: boolean) {
-  if (argv.includes('--snip')) {
+  const trimFile = trimTarget(argv);
+  if (trimFile) {
+    openTrimWindow(trimFile);
+  } else if (argv.includes('--snip')) {
     openCapture('screenshot');
   } else if (argv.includes('--capture')) {
     openCapture();
@@ -100,6 +114,8 @@ function buildTrayMenu() {
       { label: 'Snip screenshot\tCtrl+Alt+S', click: () => openCapture('screenshot') },
       { label: 'Start/stop recording\tCtrl+Shift+R', click: () => handleArgs(['--record'], false) },
       { label: 'Record an area\tCtrl+Shift+A', click: () => handleArgs(['--record-area'], false) },
+      { label: 'Trim last recording', click: trimLastRecording },
+      { label: 'Trim a video...', click: () => pickAndOpenTrim() },
       { label: 'Open recorder', click: showWindow },
       { type: 'separator' },
       { label: 'Open screenshots folder', click: () => shell.openPath(getScreenshotDir()) },
@@ -154,6 +170,7 @@ function onReady() {
   ensureStartMenuShortcut(exe, appArgs.trim());
   setStartAtLogin(getSettings().startAtLogin);
 
+  setupTrim();
   createWindow();
   createTray();
   registerShortcuts();

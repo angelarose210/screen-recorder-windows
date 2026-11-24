@@ -19,3 +19,10 @@ export declare class FFmpegEncoder {
         audioOffsetSec: number;
     }): Promise<void>;
 }
+export declare function trimVideo(options: {
+    inputPath: string;
+    outputPath: string;
+    start: number;
+    end: number;
+    onProgress?: (fraction: number) => void;
+}): Promise<void>;

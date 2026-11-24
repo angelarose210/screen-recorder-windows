@@ -19,6 +19,7 @@ export interface RecorderAPI {
   selectOutputFolder: (kind?: 'videos' | 'screenshots') => Promise<string | null>;
   getFolders: () => Promise<{ videos: string; screenshots: string }>;
   openFolder: (kind: 'videos' | 'screenshots') => Promise<void>;
+  openTrim: (filePath?: string) => Promise<boolean>;
 }
 
 contextBridge.exposeInMainWorld('recorder', {
@@ -50,4 +51,5 @@ contextBridge.exposeInMainWorld('recorder', {
   selectOutputFolder: (kind?: 'videos' | 'screenshots') => ipcRenderer.invoke('dialog:select-folder', kind),
   getFolders: () => ipcRenderer.invoke('folders:get'),
   openFolder: (kind: 'videos' | 'screenshots') => ipcRenderer.invoke('folders:open', kind),
+  openTrim: (filePath?: string) => ipcRenderer.invoke('trim:open', filePath),
 } satisfies RecorderAPI);

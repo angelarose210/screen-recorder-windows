@@ -30,4 +30,5 @@ electron_1.contextBridge.exposeInMainWorld('recorder', {
     selectOutputFolder: (kind) => electron_1.ipcRenderer.invoke('dialog:select-folder', kind),
     getFolders: () => electron_1.ipcRenderer.invoke('folders:get'),
     openFolder: (kind) => electron_1.ipcRenderer.invoke('folders:open', kind),
+    openTrim: (filePath) => electron_1.ipcRenderer.invoke('trim:open', filePath),
 });

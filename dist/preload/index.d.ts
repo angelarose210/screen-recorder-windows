@@ -28,4 +28,5 @@ export interface RecorderAPI {
         screenshots: string;
     }>;
     openFolder: (kind: 'videos' | 'screenshots') => Promise<void>;
+    openTrim: (filePath?: string) => Promise<boolean>;
 }
